@@ -6,3 +6,5 @@ opencv-python
 numpy
 python-multipart
 pydantic
+requests
+face_recognition

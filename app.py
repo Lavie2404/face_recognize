@@ -1,6 +1,8 @@
 import os
 import json
 import base64
+import requests
+import face_recognition
 import numpy as np
 import cv2
 from fastapi import FastAPI, HTTPException, Request
@@ -71,42 +73,44 @@ def decode_base64_image(base64_str):
     except Exception as e:
         raise HTTPException(status_code=400, detail=f"Lỗi giải mã ảnh: {str(e)}")
 
+def send_vector_to_matbao(user_id, image):
+    # Chuyển từ BGR (OpenCV) sang RGB (face_recognition)
+    rgb_image = cv2.cvtColor(image, cv2.COLOR_BGR2RGB)
+    
+    # 1. Trích xuất vector (128 dims)
+    encodings = face_recognition.face_encodings(rgb_image)
+    
+    if len(encodings) > 0:
+        # Chuyển vector thành chuỗi JSON
+        vector_str = json.dumps(encodings[0].tolist())
+        
+        # 2. Gửi dữ liệu tới link API trên Mắt Bão
+        api_url = "https://eemc.com.vn/calendar/backend/api_face.php"
+        payload = {
+            "user_id": user_id,
+            "face_token": vector_str
+        }
+        
+        try:
+            response = requests.post(api_url, data=payload, timeout=10)
+            result = response.json()
+            return result["message"]
+        except Exception as e:
+            return f"Lỗi gọi API: {str(e)}"
+            
+    return "Không tìm thấy khuôn mặt"
+
 @app.post("/register")
 async def register(req: FaceRequest):
     img = decode_base64_image(req.image)
     
-    try:
-        # Trích xuất vector (embedding) với detector nhanh hơn
-        result = DeepFace.represent(
-            img, 
-            model_name=MODEL_NAME, 
-            detector_backend=DETECTOR_BACKEND,
-            enforce_detection=True
-        )
-        embedding = result[0]["embedding"]
-        current_vec = np.array(embedding)
-        
-        db = load_db()
-        
-        # KIỂM TRA XEM KHUÔN MẶT ĐÃ CÓ TRONG DATABASE CHƯA
-        threshold = 0.40
-        for user, stored_embedding in db.items():
-            stored_vec = np.array(stored_embedding)
-            distance = 1 - np.dot(stored_vec, current_vec) / (np.linalg.norm(stored_vec) * np.linalg.norm(current_vec))
-            
-            if distance < threshold:
-                return {
-                    "status": "error", 
-                    "message": f"Khuôn mặt này đã được đăng ký cho người dùng: {user}"
-                }
-
-        # Nếu chưa có thì mới lưu
-        db[req.username] = embedding
-        save_db(db)
-        
-        return {"status": "success", "message": f"Đã đăng ký Face-ID cho {req.username}"}
-    except Exception as e:
-        return {"status": "error", "message": f"Không tìm thấy khuôn mặt hoặc lỗi: {str(e)}"}
+    # Sử dụng hàm gửi vector tới Mắt Bão
+    message = send_vector_to_matbao(req.username, img)
+    
+    if "thành công" in message.lower():
+        return {"status": "success", "message": message}
+    else:
+        return {"status": "error", "message": message}
 
 @app.post("/verify")
 async def verify(req: FaceRequest):
