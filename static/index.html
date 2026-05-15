@@ -1,0 +1,65 @@
+<!DOCTYPE html>
+<html lang="vi">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Face-ID System - Premium AI</title>
+    <link rel="stylesheet" href="style.css">
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;600;700&display=swap" rel="stylesheet">
+    <script src="https://unpkg.com/vue@3/dist/vue.global.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/axios/dist/axios.min.js"></script>
+</head>
+<body>
+    <div id="app" v-cloak>
+        <div class="container">
+            <header>
+                <h1>Face-ID <span>Pro</span></h1>
+                <p>Hệ thống nhận diện khuôn mặt thông minh</p>
+            </header>
+
+            <main>
+                <div class="card glass">
+                    <div class="video-container">
+                        <video ref="video" autoplay playsinline></video>
+                        <canvas ref="canvas" style="display:none;"></canvas>
+                        <div class="scanner-line" v-if="scanning"></div>
+                    </div>
+
+                    <div class="controls">
+                        <div class="input-group">
+                            <input type="text" v-model="username" placeholder="Nhập tên người dùng..." id="username-input">
+                        </div>
+
+                        <div class="button-group">
+                            <button @click="handleAction('register')" :disabled="loading" class="btn btn-primary">
+                                <span v-if="loading && action === 'register'" class="loader"></span>
+                                Thiết lập Face-ID
+                            </button>
+                            <button @click="handleAction('verify')" :disabled="loading" class="btn btn-secondary">
+                                <span v-if="loading && action === 'verify'" class="loader"></span>
+                                Xác thực Login
+                            </button>
+                        </div>
+                    </div>
+                </div>
+
+                <div v-if="message" :class="['alert', status]">
+                    {{ message }}
+                </div>
+            </main>
+
+            <!-- Toast System -->
+            <div class="toast-container">
+                <div v-for="toast in toasts" :key="toast.id" :class="['toast', toast.type]">
+                    <div class="toast-icon" v-if="toast.type === 'success'">✓</div>
+                    <div class="toast-icon" v-else>!</div>
+                    <div class="toast-content">{{ toast.message }}</div>
+                </div>
+            </div>
+        </div>
+    </div>
+    <script src="script.js"></script>
+</body>
+</html>
