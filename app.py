@@ -71,12 +71,13 @@ def send_vector_to_matbao(user_id, image):
             }
             
             try:
-                # SỬA: Gửi json=payload để khớp với php://input của PHP
                 response = requests.post(api_url, json=payload, timeout=10)
+                # In ra log để debug nếu Mắt Bão trả về lỗi không phải JSON
+                print(f"Mắt Bão Response: {response.text}")
                 result = response.json()
                 return result.get("message", "Cập nhật thành công")
             except Exception as e:
-                return f"Lỗi gọi API Mắt Bão: {str(e)}"
+                return f"Lỗi gọi API Mắt Bão: {str(e)} | Nội dung gốc: {response.text[:100]}"
         
         return "Không tìm thấy khuôn mặt rõ ràng"
         
