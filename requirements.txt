@@ -1,10 +1,9 @@
 fastapi
 uvicorn
+python-multipart
+requests
+numpy
+opencv-python-headless
 deepface
 tf-keras
-opencv-python
-numpy
-python-multipart
 pydantic
-requests
-face_recognition

@@ -2,7 +2,6 @@ import os
 import json
 import base64
 import requests
-import face_recognition
 import numpy as np
 import cv2
 from fastapi import FastAPI, HTTPException
@@ -12,9 +11,9 @@ from deepface import DeepFace
 from pydantic import BaseModel
 import uvicorn
 
-app = FastAPI(title="EEMC Face Recognition Microservice")
+app = FastAPI(title="EEMC Face-ID Microservice (DeepFace Version)")
 
-# Cấu hình CORS để cho phép Frontend từ Mắt Bão gọi tới
+# Cấu hình CORS
 app.add_middleware(
     CORSMiddleware,
     allow_origins=["*"],
@@ -23,13 +22,17 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
-# Tải trước model để tăng tốc xử lý
+# Cấu hình Model - Facenet cho kết quả 128-d ổn định
 MODEL_NAME = "Facenet"
-DETECTOR_BACKEND = "opencv"
+DETECTOR_BACKEND = "opencv" # Nhanh và không cần dlib
 
-print(f"Đang tải model {MODEL_NAME}...")
-DeepFace.build_model(MODEL_NAME)
-print("Model đã sẵn sàng!")
+print(f"Đang khởi tạo mô hình {MODEL_NAME}...")
+# Build model trước để tải trọng số về cache
+try:
+    DeepFace.build_model(MODEL_NAME)
+    print("Mô hình đã sẵn sàng!")
+except Exception as e:
+    print(f"Lưu ý: Không thể build model ngay, sẽ build khi chạy. Lỗi: {e}")
 
 class FaceRequest(BaseModel):
     username: Optional[str] = None
@@ -47,35 +50,40 @@ def decode_base64_image(base64_str):
         raise HTTPException(status_code=400, detail=f"Lỗi giải mã ảnh: {str(e)}")
 
 def send_vector_to_matbao(user_id, image):
-    """Trích xuất vector và gửi về server Mắt Bão"""
-    # Chuyển sang RGB cho face_recognition
-    rgb_image = cv2.cvtColor(image, cv2.COLOR_BGR2RGB)
-    
-    # Trích xuất vector (128 dims)
-    encodings = face_recognition.face_encodings(rgb_image)
-    
-    if len(encodings) > 0:
-        vector_str = json.dumps(encodings[0].tolist())
+    """Sử dụng DeepFace để trích xuất vector và gửi về Mắt Bão"""
+    try:
+        # DeepFace.represent trả về một list các khuôn mặt tìm thấy
+        results = DeepFace.represent(
+            img_path=image, 
+            model_name=MODEL_NAME,
+            detector_backend=DETECTOR_BACKEND,
+            enforce_detection=True,
+            align=True
+        )
         
-        # Gửi tới API trên Mắt Bão
-        api_url = "https://eemc.com.vn/calendar/backend/api_face.php"
-        payload = {
-            "user_id": user_id,
-            "face_token": vector_str
-        }
-        
-        try:
+        if len(results) > 0:
+            # Lấy vector embedding (Facenet trả về 128 chiều)
+            vector = results[0]["embedding"]
+            vector_str = json.dumps(vector)
+            
+            # Gửi dữ liệu tới API trên Mắt Bão
+            api_url = "https://eemc.com.vn/calendar/backend/api_face.php"
+            payload = {
+                "user_id": user_id,
+                "face_token": vector_str
+            }
+            
             response = requests.post(api_url, data=payload, timeout=10)
             result = response.json()
             return result.get("message", "Cập nhật thành công")
-        except Exception as e:
-            return f"Lỗi gọi API Mắt Bão: {str(e)}"
-            
-    return "Không tìm thấy khuôn mặt trong ảnh"
+        
+        return "Không tìm thấy khuôn mặt rõ ràng"
+        
+    except Exception as e:
+        return f"Lỗi xử lý AI: {str(e)}"
 
 @app.post("/register")
 async def register(req: FaceRequest):
-    """Endpoint nhận ảnh, trích xuất vector và đẩy về Mắt Bão"""
     img = decode_base64_image(req.image)
     message = send_vector_to_matbao(req.username, img)
     
@@ -86,8 +94,7 @@ async def register(req: FaceRequest):
 
 @app.get("/health")
 async def health():
-    return {"status": "healthy", "model": MODEL_NAME}
+    return {"status": "healthy", "engine": "DeepFace", "model": MODEL_NAME}
 
 if __name__ == "__main__":
-    print("Đang khởi động Server xử lý ảnh tại http://localhost:8000")
     uvicorn.run(app, host="0.0.0.0", port=8000)
