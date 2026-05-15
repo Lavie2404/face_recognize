@@ -92,6 +92,10 @@ async def register(req: FaceRequest):
     else:
         return {"status": "error", "message": message}
 
+@app.get("/")
+async def root():
+    return {"message": "EEMC Face-ID AI Microservice is running!"}
+
 @app.get("/health")
 async def health():
     return {"status": "healthy", "engine": "DeepFace", "model": MODEL_NAME}
