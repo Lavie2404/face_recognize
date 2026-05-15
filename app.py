@@ -75,7 +75,7 @@ async def register(req: FaceRequest):
         }
         
         resp = requests.post(api_url, json={"user_id": req.username, "face_token": vector_str}, headers=headers, timeout=10)
-        return {"status": "success", "message": resp.text[:100]}
+        return {"status": "success", "message": resp.text}
     except Exception as e:
         return {"status": "error", "message": str(e)}
 
