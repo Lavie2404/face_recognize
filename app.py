@@ -54,7 +54,8 @@ def get_face_embedding(image):
         model_name=MODEL_NAME,
         detector_backend=DETECTOR_BACKEND,
         enforce_detection=True,
-        align=True
+        align=True,
+        normalization="base" # Chuẩn hóa dữ liệu
     )
     if not results:
         raise Exception("Không tìm thấy khuôn mặt")
