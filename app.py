@@ -24,15 +24,14 @@ app.add_middleware(
 
 # Cấu hình Model - Facenet cho kết quả 128-d ổn định
 MODEL_NAME = "Facenet"
-DETECTOR_BACKEND = "opencv" # Nhanh và không cần dlib
+DETECTOR_BACKEND = "opencv"
 
 print(f"Đang khởi tạo mô hình {MODEL_NAME}...")
-# Build model trước để tải trọng số về cache
 try:
     DeepFace.build_model(MODEL_NAME)
     print("Mô hình đã sẵn sàng!")
 except Exception as e:
-    print(f"Lưu ý: Không thể build model ngay, sẽ build khi chạy. Lỗi: {e}")
+    print(f"Lưu ý: Không thể build model ngay. Lỗi: {e}")
 
 class FaceRequest(BaseModel):
     username: Optional[str] = None
@@ -50,9 +49,8 @@ def decode_base64_image(base64_str):
         raise HTTPException(status_code=400, detail=f"Lỗi giải mã ảnh: {str(e)}")
 
 def send_vector_to_matbao(user_id, image):
-    """Sử dụng DeepFace để trích xuất vector và gửi về Mắt Bão"""
+    """Sử dụng DeepFace để trích xuất vector và gửi về Mắt Bão dạng JSON"""
     try:
-        # DeepFace.represent trả về một list các khuôn mặt tìm thấy
         results = DeepFace.represent(
             img_path=image, 
             model_name=MODEL_NAME,
@@ -62,20 +60,23 @@ def send_vector_to_matbao(user_id, image):
         )
         
         if len(results) > 0:
-            # Lấy vector embedding (Facenet trả về 128 chiều)
             vector = results[0]["embedding"]
             vector_str = json.dumps(vector)
             
-            # Gửi dữ liệu tới API trên Mắt Bão
+            # Payload gửi đi
             api_url = "https://eemc.com.vn/calendar/backend/api_face.php"
             payload = {
                 "user_id": user_id,
                 "face_token": vector_str
             }
             
-            response = requests.post(api_url, data=payload, timeout=10)
-            result = response.json()
-            return result.get("message", "Cập nhật thành công")
+            try:
+                # SỬA: Gửi json=payload để khớp với php://input của PHP
+                response = requests.post(api_url, json=payload, timeout=10)
+                result = response.json()
+                return result.get("message", "Cập nhật thành công")
+            except Exception as e:
+                return f"Lỗi gọi API Mắt Bão: {str(e)}"
         
         return "Không tìm thấy khuôn mặt rõ ràng"
         
@@ -94,12 +95,15 @@ async def register(req: FaceRequest):
 
 @app.get("/")
 async def root():
-    return {"message": "EEMC Face-ID AI Microservice is running!"}
+    return {
+        "message": "EEMC Face-ID AI Microservice is running!",
+        "status": "Mô hình đã sẵn sàng!",
+        "engine": "DeepFace (Facenet)"
+    }
 
 @app.get("/health")
 async def health():
     return {"status": "healthy", "engine": "DeepFace", "model": MODEL_NAME}
 
 if __name__ == "__main__":
-    print("Đang khởi động Server xử lý ảnh tại cổng 7860...")
     uvicorn.run(app, host="0.0.0.0", port=7860)
