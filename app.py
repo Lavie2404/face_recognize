@@ -97,4 +97,5 @@ async def health():
     return {"status": "healthy", "engine": "DeepFace", "model": MODEL_NAME}
 
 if __name__ == "__main__":
-    uvicorn.run(app, host="0.0.0.0", port=8000)
+    print("Đang khởi động Server xử lý ảnh tại cổng 7860...")
+    uvicorn.run(app, host="0.0.0.0", port=7860)
