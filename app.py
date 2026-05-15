@@ -11,7 +11,7 @@ from deepface import DeepFace
 from pydantic import BaseModel
 import uvicorn
 
-app = FastAPI(title="EEMC Face-ID Microservice (Dynamic Version)")
+app = FastAPI(title="EEMC Face-ID Microservice (Final Fix)")
 
 # Cấu hình CORS
 app.add_middleware(
@@ -36,7 +36,7 @@ except Exception as e:
 class FaceRequest(BaseModel):
     username: Optional[str] = None
     image: str
-    callback_url: Optional[str] = None # Thêm trường này để nhận diện site gửi tới
+    callback_url: Optional[str] = None
 
 def decode_base64_image(base64_str):
     try:
@@ -64,34 +64,38 @@ def send_vector_to_matbao(user_id, image, custom_url=None):
             vector = results[0]["embedding"]
             vector_str = json.dumps(vector)
             
-            # Ưu tiên sử dụng URL từ Frontend gửi sang
+            # Địa chỉ đích (ưu tiên từ frontend)
             api_url = custom_url if custom_url else "https://eemc.com.vn/calendar/backend/api_face.php"
             
             payload = {
                 "user_id": user_id,
                 "face_token": vector_str
             }
+
+            # Giả lập trình duyệt để tránh bị chặn User-Agent
+            headers = {
+                "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36",
+                "Content-Type": "application/json"
+            }
             
             try:
                 print(f"Đang gửi dữ liệu về: {api_url}")
-                response = requests.post(api_url, json=payload, timeout=10)
-                print(f"Mắt Bão Response ({response.status_code}): {response.text}")
+                response = requests.post(api_url, json=payload, headers=headers, timeout=10)
+                print(f"Mắt Bão Response ({response.status_code}): {response.text[:500]}")
                 result = response.json()
                 return result.get("message", "Cập nhật thành công")
             except Exception as e:
-                # Nếu không đọc được JSON, in ra 100 ký tự đầu của response để debug
-                raw_text = response.text[:100] if 'response' in locals() else "No response"
-                return f"Lỗi gọi API Mắt Bão: {str(e)} | Nội dung gốc: {raw_text}"
+                raw_text = response.text[:200] if 'response' in locals() else "Không có phản hồi"
+                return f"Lỗi API: {str(e)} | Nội dung từ server: {raw_text}"
         
-        return "Không tìm thấy khuôn mặt rõ ràng"
+        return "Không tìm thấy khuôn mặt"
         
     except Exception as e:
-        return f"Lỗi xử lý AI: {str(e)}"
+        return f"Lỗi AI: {str(e)}"
 
 @app.post("/register")
 async def register(req: FaceRequest):
     img = decode_base64_image(req.image)
-    # Truyền thêm callback_url vào hàm xử lý
     message = send_vector_to_matbao(req.username, img, req.callback_url)
     
     if "thành công" in message.lower():
@@ -101,15 +105,7 @@ async def register(req: FaceRequest):
 
 @app.get("/")
 async def root():
-    return {
-        "message": "EEMC Face-ID AI Microservice is running!",
-        "status": "Mô hình đã sẵn sàng!",
-        "mode": "Dynamic Site Support"
-    }
-
-@app.get("/health")
-async def health():
-    return {"status": "healthy"}
+    return {"message": "EEMC Face-ID AI Microservice is running!", "mode": "Dynamic Site Support"}
 
 if __name__ == "__main__":
     uvicorn.run(app, host="0.0.0.0", port=7860)
