@@ -23,8 +23,8 @@ app.add_middleware(
 )
 
 # Cấu hình Model
-MODEL_NAME = "Facenet"
-DETECTOR_BACKEND = "opencv"
+MODEL_NAME = "Facenet512"
+DETECTOR_BACKEND = "ssd" # Sử dụng SSD để phát hiện khuôn mặt nhanh & chuẩn xác tuyệt đối trên CPU
 
 print(f"Khởi tạo mô hình {MODEL_NAME}...")
 try:
