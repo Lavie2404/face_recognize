@@ -43,12 +43,12 @@ async def lifespan(app: FastAPI):
 
 app = FastAPI(lifespan=lifespan)
 
-# CORS: chi can cho /health (ping danh thuc tu trinh duyet eemc.com.vn);
-# /embed duoc goi server-to-server tu PHP nen khong can CORS.
+# CORS cho trinh duyet eemc.com.vn: /health (ping GET) va /verify (cac trang
+# diem danh cu goi POST truc tiep). /embed goi server-to-server tu PHP, khong can CORS.
 app.add_middleware(
     CORSMiddleware,
     allow_origins=["https://eemc.com.vn"],
-    allow_methods=["GET"],
+    allow_methods=["GET", "POST"],
     allow_headers=["*"],
 )
 
@@ -56,6 +56,7 @@ app.add_middleware(
 class EmbedRequest(BaseModel):
     image: str
     client: str = ""
+    username: str = ""  # cac trang diem danh cu gui kem (khong bat buoc)
 
 
 def _decode_image(data_url: str):
@@ -74,79 +75,105 @@ def health():
     return {"status": "ok", "model_version": MODEL_VERSION}
 
 
-@app.post("/embed")
-def embed(req: EmbedRequest):
-    t0 = time.time()
-    img = _decode_image(req.image)
+def _detect_and_embed(img, do_antispoof):
+    """
+    Detect + align (RetinaFace) roi trich xuat embedding Facenet512.
+    Tra ve tuple (result_dict, ok_bool):
+      ok=True  -> result la {'embedding','facial_area','face_confidence','is_real','antispoof_score'}
+      ok=False -> result la {'status':'rejected'|'error', 'reason'|'message', ...}
+    """
     if img is None or img.size == 0:
-        return {"status": "error", "message": "Khong giai ma duoc anh"}
+        return ({"status": "error", "message": "Khong giai ma duoc anh"}, False)
 
-    # 1) Detect + align + anti-spoofing (tu choi la mac dinh)
     try:
         faces = DeepFace.extract_faces(
-            img_path=img,
-            detector_backend=DETECTOR,
-            enforce_detection=True,
-            align=True,
-            anti_spoofing=True,
+            img_path=img, detector_backend=DETECTOR,
+            enforce_detection=True, align=True, anti_spoofing=do_antispoof,
         )
     except ValueError:
-        return {"status": "rejected", "reason": "no_face",
-                "model_version": MODEL_VERSION}
-    except Exception as exc:  # loi he thong (thieu tai nguyen...)
-        return {"status": "error", "message": str(exc)[:200]}
+        return ({"status": "rejected", "reason": "no_face", "model_version": MODEL_VERSION}, False)
+    except Exception as exc:
+        return ({"status": "error", "message": str(exc)[:200]}, False)
 
     faces = [f for f in faces if f.get("confidence", 0) > 0.5]
     if len(faces) == 0:
-        return {"status": "rejected", "reason": "no_face",
-                "model_version": MODEL_VERSION}
+        return ({"status": "rejected", "reason": "no_face", "model_version": MODEL_VERSION}, False)
     if len(faces) > 1:
-        return {"status": "rejected", "reason": "multiple_faces",
-                "model_version": MODEL_VERSION}
+        return ({"status": "rejected", "reason": "multiple_faces", "model_version": MODEL_VERSION}, False)
 
     face = faces[0]
     area = face.get("facial_area", {})
     confidence = float(face.get("confidence", 0.0))
-    is_real = bool(face.get("is_real", False))
+    is_real = bool(face.get("is_real", True))
     antispoof_score = float(face.get("antispoof_score", 0.0))
 
     if area.get("w", 0) < MIN_FACE_PX or area.get("h", 0) < MIN_FACE_PX:
-        return {"status": "rejected", "reason": "face_too_small",
-                "facial_area": {k: area.get(k) for k in ("x", "y", "w", "h")},
-                "model_version": MODEL_VERSION}
+        return ({"status": "rejected", "reason": "face_too_small",
+                 "facial_area": {k: area.get(k) for k in ("x", "y", "w", "h")},
+                 "model_version": MODEL_VERSION}, False)
     if confidence < MIN_CONFIDENCE:
-        return {"status": "rejected", "reason": "low_confidence",
-                "face_confidence": round(confidence, 4),
-                "model_version": MODEL_VERSION}
-    if not is_real:
-        return {"status": "rejected", "reason": "spoof_suspect",
-                "antispoof_score": round(antispoof_score, 4),
-                "model_version": MODEL_VERSION}
+        return ({"status": "rejected", "reason": "low_confidence",
+                 "face_confidence": round(confidence, 4), "model_version": MODEL_VERSION}, False)
+    if do_antispoof and not is_real:
+        return ({"status": "rejected", "reason": "spoof_suspect",
+                 "antispoof_score": round(antispoof_score, 4), "model_version": MODEL_VERSION}, False)
 
-    # 2) Embedding tren khuon mat DA duoc detect + align (khong detect lai)
     aligned = (face["face"] * 255).astype(np.uint8)  # extract_faces tra RGB 0..1
     aligned_bgr = cv2.cvtColor(aligned, cv2.COLOR_RGB2BGR)
     try:
         reps = DeepFace.represent(
-            img_path=aligned_bgr,
-            model_name=MODEL_NAME,
-            detector_backend="skip",
-            enforce_detection=False,
-            align=False,
+            img_path=aligned_bgr, model_name=MODEL_NAME,
+            detector_backend="skip", enforce_detection=False, align=False,
         )
     except Exception as exc:
-        return {"status": "error", "message": str(exc)[:200]}
+        return ({"status": "error", "message": str(exc)[:200]}, False)
 
     if not reps or "embedding" not in reps[0]:
-        return {"status": "error", "message": "Khong trich xuat duoc dac trung"}
+        return ({"status": "error", "message": "Khong trich xuat duoc dac trung"}, False)
 
-    return {
-        "status": "success",
+    return ({
         "embedding": reps[0]["embedding"],
         "facial_area": {k: area.get(k) for k in ("x", "y", "w", "h")},
         "face_confidence": round(confidence, 4),
-        "antispoof_passed": True,
+        "is_real": is_real,
         "antispoof_score": round(antispoof_score, 4),
+    }, True)
+
+
+@app.post("/embed")
+def embed(req: EmbedRequest):
+    """Face-ID v2: strict (co anti-spoofing), tra ve embedding + chi so chat luong."""
+    t0 = time.time()
+    res, ok = _detect_and_embed(_decode_image(req.image), do_antispoof=True)
+    if not ok:
+        return res
+    return {
+        "status": "success",
+        "embedding": res["embedding"],
+        "facial_area": res["facial_area"],
+        "face_confidence": res["face_confidence"],
+        "antispoof_passed": True,
+        "antispoof_score": res["antispoof_score"],
         "model_version": MODEL_VERSION,
         "processing_ms": int((time.time() - t0) * 1000),
     }
+
+
+@app.post("/verify")
+def verify(req: EmbedRequest):
+    """
+    Tuong thich NGUOC voi cac trang diem danh cu goi Space nay (POST /verify
+    {image, username} -> {status:'success', embedding}). Giu detect+align chuan
+    nhung KHONG bat anti-spoofing (giu hanh vi cu de khong vo luong diem danh).
+    """
+    res, ok = _detect_and_embed(_decode_image(req.image), do_antispoof=False)
+    if not ok:
+        # Trang cu chi doc res.message khi status != success
+        reason = res.get("reason")
+        msg = res.get("message") or (
+            "Face could not be detected" if reason == "no_face" else
+            "Phat hien nhieu khuon mat" if reason == "multiple_faces" else
+            "Anh chua dat chat luong"
+        )
+        return {"status": "error", "message": msg}
+    return {"status": "success", "embedding": res["embedding"]}
