@@ -85,35 +85,50 @@ def _detect_and_embed(img, do_antispoof):
     if img is None or img.size == 0:
         return ({"status": "error", "message": "Khong giai ma duoc anh"}, False)
 
-    try:
-        faces = DeepFace.extract_faces(
-            img_path=img, detector_backend=DETECTOR,
-            enforce_detection=True, align=True, anti_spoofing=do_antispoof,
-        )
-    except ValueError:
-        return ({"status": "rejected", "reason": "no_face", "model_version": MODEL_VERSION}, False)
-    except Exception as exc:
-        return ({"status": "error", "message": str(exc)[:200]}, False)
+    # Dò mặt: thử RetinaFace trước, không thấy thì thử các detector dự phòng.
+    faces = None
+    last_exc = None
+    for det in (DETECTOR, "mtcnn", "opencv"):
+        try:
+            faces = DeepFace.extract_faces(
+                img_path=img, detector_backend=det,
+                enforce_detection=True, align=True, anti_spoofing=do_antispoof,
+            )
+            if faces:
+                print(f"[embed] detector={det} tim thay {len(faces)} mat")
+                break
+        except ValueError as ve:
+            last_exc = ve
+            print(f"[embed] detector={det}: khong tim thay mat")
+            faces = None
+        except Exception as exc:
+            last_exc = exc
+            print(f"[embed] detector={det} loi: {exc}")
+            faces = None
 
-    faces = [f for f in faces if f.get("confidence", 0) > 0.5]
-    if len(faces) == 0:
+    if not faces:
+        print(f"[embed] TAT CA detector khong thay mat (loi cuoi: {last_exc})")
         return ({"status": "rejected", "reason": "no_face", "model_version": MODEL_VERSION}, False)
-    if len(faces) > 1:
+
+    # Chon mat lon nhat; canh bao nhieu mat chi khi co >=2 mat cỡ tuong duong
+    def _area(f):
+        a = f.get("facial_area", {})
+        return a.get("w", 0) * a.get("h", 0)
+    faces = sorted(faces, key=_area, reverse=True)
+    if len(faces) > 1 and _area(faces[1]) > 0.5 * _area(faces[0]):
         return ({"status": "rejected", "reason": "multiple_faces", "model_version": MODEL_VERSION}, False)
 
     face = faces[0]
     area = face.get("facial_area", {})
-    confidence = float(face.get("confidence", 0.0))
+    # confidence co the thieu tuy phien ban DeepFace -> mac dinh cao (da qua enforce_detection)
+    confidence = float(face.get("confidence", 0.99) or 0.99)
     is_real = bool(face.get("is_real", True))
-    antispoof_score = float(face.get("antispoof_score", 0.0))
+    antispoof_score = float(face.get("antispoof_score", 0.0) or 0.0)
 
     if area.get("w", 0) < MIN_FACE_PX or area.get("h", 0) < MIN_FACE_PX:
         return ({"status": "rejected", "reason": "face_too_small",
                  "facial_area": {k: area.get(k) for k in ("x", "y", "w", "h")},
                  "model_version": MODEL_VERSION}, False)
-    if confidence < MIN_CONFIDENCE:
-        return ({"status": "rejected", "reason": "low_confidence",
-                 "face_confidence": round(confidence, 4), "model_version": MODEL_VERSION}, False)
     if do_antispoof and not is_real:
         return ({"status": "rejected", "reason": "spoof_suspect",
                  "antispoof_score": round(antispoof_score, 4), "model_version": MODEL_VERSION}, False)
