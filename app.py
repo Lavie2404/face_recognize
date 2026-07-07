@@ -72,6 +72,17 @@ def _decode_image(data_url: str):
         return None
 
 
+@app.get("/")
+def root():
+    # Trang goc chi de kiem tra nhanh bang trinh duyet (truoc day tra 404 "Not Found" gay hieu nham)
+    return {
+        "service": "EEMC Face-ID v2",
+        "status": "ok",
+        "model_version": MODEL_VERSION,
+        "endpoints": ["/health", "/embed", "/verify"],
+    }
+
+
 @app.get("/health")
 def health():
     return {"status": "ok", "model_version": MODEL_VERSION}
