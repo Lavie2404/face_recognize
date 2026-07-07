@@ -70,6 +70,17 @@ def _decode_image(data_url: str):
         return None
 
 
+@app.get("/")
+def root():
+    """Trang chu Space: xac nhan dich vu dang chay va liet ke endpoint."""
+    return {
+        "service": "EEMC Face-ID v2",
+        "status": "ok",
+        "model_version": MODEL_VERSION,
+        "endpoints": ["/health", "/embed", "/verify"],
+    }
+
+
 @app.get("/health")
 def health():
     return {"status": "ok", "model_version": MODEL_VERSION}
