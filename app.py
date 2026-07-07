@@ -31,14 +31,15 @@ async def lifespan(app: FastAPI):
     # Warm-up: nap san model embedding + detector + anti-spoofing de request dau khong phai tai
     DeepFace.build_model(MODEL_NAME)
     dummy = np.zeros((160, 160, 3), dtype=np.uint8)
-    try:
-        DeepFace.extract_faces(
-            img_path=dummy, detector_backend=DETECTOR,
-            enforce_detection=False, align=True, anti_spoofing=True,
-        )
-    except Exception as exc:
-        # Anh den khong co mat la binh thuong; loi khac (thieu torch...) phai lo ra log
-        print(f"[warmup] {exc}")
+    for det in ("yunet", DETECTOR):
+        try:
+            DeepFace.extract_faces(
+                img_path=dummy, detector_backend=det,
+                enforce_detection=False, align=True, anti_spoofing=True,
+            )
+        except Exception as exc:
+            # Anh den khong co mat la binh thuong; loi khac (thieu torch...) phai lo ra log
+            print(f"[warmup] {det}: {exc}")
     yield
 
 
@@ -86,26 +87,32 @@ def _detect_and_embed(img, do_antispoof):
     if img is None or img.size == 0:
         return ({"status": "error", "message": "Khong giai ma duoc anh"}, False)
 
-    # Dò mặt: thử RetinaFace trước, không thấy thì thử các detector dự phòng.
+    # Dò mặt: YuNet TRUOC (nhanh ~20x tren CPU, du chinh xac cho anh da duoc
+    # client cat san quanh mat), truot moi roi ve RetinaFace (chinh xac nhat,
+    # cham) roi opencv. Do chinh xac NHAN DANG khong doi: embedding van la
+    # Facenet512 + can chinh theo mat, nguong so khop o PHP giu nguyen.
     # PHAN BIET "khong thay mat" (ValueError cua enforce_detection) voi loi
     # cau hinh/moi truong (vd thieu torch cho anti-spoofing) - loi loai sau
     # KHONG duoc bao la no_face keo nguoi dung tuong anh xau.
     faces = None
     detect_miss = False
     last_err = None
-    for det in (DETECTOR, "mtcnn", "opencv"):
+    for det in ("yunet", DETECTOR, "opencv"):
+        t_det = time.time()
         try:
             faces = DeepFace.extract_faces(
                 img_path=img, detector_backend=det,
                 enforce_detection=True, align=True, anti_spoofing=do_antispoof,
             )
             if faces:
-                print(f"[embed] detector={det} tim thay {len(faces)} mat")
+                print(f"[embed] detector={det} tim thay {len(faces)} mat "
+                      f"({int((time.time() - t_det) * 1000)}ms)")
                 break
         except ValueError as ve:
             if "detected" in str(ve).lower():
                 detect_miss = True
-                print(f"[embed] detector={det}: khong tim thay mat")
+                print(f"[embed] detector={det}: khong tim thay mat "
+                      f"({int((time.time() - t_det) * 1000)}ms)")
             else:
                 last_err = ve
                 print(f"[embed] detector={det} loi: {ve}")

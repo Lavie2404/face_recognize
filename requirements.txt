@@ -6,5 +6,4 @@ tf-keras
 opencv-python-headless>=4.9
 numpy
 retina-face
-mtcnn
 torch>=2.0
