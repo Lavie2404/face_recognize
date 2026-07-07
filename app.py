@@ -36,8 +36,9 @@ async def lifespan(app: FastAPI):
             img_path=dummy, detector_backend=DETECTOR,
             enforce_detection=False, align=True, anti_spoofing=True,
         )
-    except Exception:
-        pass  # anh den khong co mat - chi can nap trong so
+    except Exception as exc:
+        # Anh den khong co mat la binh thuong; loi khac (thieu torch...) phai lo ra log
+        print(f"[warmup] {exc}")
     yield
 
 
@@ -70,17 +71,6 @@ def _decode_image(data_url: str):
         return None
 
 
-@app.get("/")
-def root():
-    """Trang chu Space: xac nhan dich vu dang chay va liet ke endpoint."""
-    return {
-        "service": "EEMC Face-ID v2",
-        "status": "ok",
-        "model_version": MODEL_VERSION,
-        "endpoints": ["/health", "/embed", "/verify"],
-    }
-
-
 @app.get("/health")
 def health():
     return {"status": "ok", "model_version": MODEL_VERSION}
@@ -97,8 +87,12 @@ def _detect_and_embed(img, do_antispoof):
         return ({"status": "error", "message": "Khong giai ma duoc anh"}, False)
 
     # Dò mặt: thử RetinaFace trước, không thấy thì thử các detector dự phòng.
+    # PHAN BIET "khong thay mat" (ValueError cua enforce_detection) voi loi
+    # cau hinh/moi truong (vd thieu torch cho anti-spoofing) - loi loai sau
+    # KHONG duoc bao la no_face keo nguoi dung tuong anh xau.
     faces = None
-    last_exc = None
+    detect_miss = False
+    last_err = None
     for det in (DETECTOR, "mtcnn", "opencv"):
         try:
             faces = DeepFace.extract_faces(
@@ -109,17 +103,26 @@ def _detect_and_embed(img, do_antispoof):
                 print(f"[embed] detector={det} tim thay {len(faces)} mat")
                 break
         except ValueError as ve:
-            last_exc = ve
-            print(f"[embed] detector={det}: khong tim thay mat")
+            if "detected" in str(ve).lower():
+                detect_miss = True
+                print(f"[embed] detector={det}: khong tim thay mat")
+            else:
+                last_err = ve
+                print(f"[embed] detector={det} loi: {ve}")
             faces = None
         except Exception as exc:
-            last_exc = exc
+            last_err = exc
             print(f"[embed] detector={det} loi: {exc}")
             faces = None
 
     if not faces:
-        print(f"[embed] TAT CA detector khong thay mat (loi cuoi: {last_exc})")
-        return ({"status": "rejected", "reason": "no_face", "model_version": MODEL_VERSION}, False)
+        if detect_miss:
+            print("[embed] cac detector chay duoc deu khong thay mat")
+            return ({"status": "rejected", "reason": "no_face", "model_version": MODEL_VERSION}, False)
+        # Khong detector nao chay tron ven -> loi dich vu, khong phai loi anh
+        print(f"[embed] TAT CA detector loi (loi cuoi: {last_err})")
+        return ({"status": "error",
+                 "message": ("Detector loi: " + str(last_err)[:180]) if last_err else "Detector loi"}, False)
 
     # Chon mat lon nhat; canh bao nhieu mat chi khi co >=2 mat cỡ tuong duong
     def _area(f):

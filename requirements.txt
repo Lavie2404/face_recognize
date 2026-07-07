@@ -1,3 +1,4 @@
+--extra-index-url https://download.pytorch.org/whl/cpu
 fastapi>=0.110
 uvicorn[standard]>=0.29
 deepface>=0.0.93
@@ -5,3 +6,5 @@ tf-keras
 opencv-python-headless>=4.9
 numpy
 retina-face
+mtcnn
+torch>=2.0
