@@ -165,7 +165,16 @@ def _detect_and_embed(img, do_antispoof):
         return ({"status": "rejected", "reason": "spoof_suspect",
                  "antispoof_score": round(antispoof_score, 4), "model_version": MODEL_VERSION}, False)
 
-    aligned = (face["face"] * 255).astype(np.uint8)  # extract_faces tra RGB 0..1
+    # LUU Y QUAN TRONG: face["face"] cua DeepFace.extract_faces() co thang gia tri
+    # KHAC NHAU tuy phien ban: ban tra RGB [0,1] (float), ban tra [0,255]. Neu anh
+    # da o [0,255] ma van nhan them *255 -> TRAN uint8 -> khuon mat bien thanh nhieu
+    # bao hoa -> embedding suy bien ve mot vector "chung" -> MOI khuon mat deu gan
+    # nhau (khoang cach sup duoi nguong) -> nguoi khac van dang nhap duoc. Chuan hoa
+    # an toan cho ca hai thang truoc khi represent.
+    aligned = np.asarray(face["face"], dtype=np.float32)
+    if aligned.max() <= 1.5:          # dang [0,1] -> dua ve [0,255]
+        aligned = aligned * 255.0
+    aligned = np.clip(aligned, 0, 255).astype(np.uint8)
     aligned_bgr = cv2.cvtColor(aligned, cv2.COLOR_RGB2BGR)
     try:
         reps = DeepFace.represent(
