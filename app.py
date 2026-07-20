@@ -17,8 +17,13 @@ from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel
 
-MODEL_VERSION = "facenet512-retinaface-v1"
-MODEL_NAME = "Facenet512"
+# ArcFace thay Facenet512 (07/2026): Facenet512 cho khoang cach giua NGUOI KHAC NHAU
+# chi ~0.49 tren anh webcam xuong (lanh manh phai 0.6-1.0) -> 61% luot dang ky bi chan
+# nham vi "trung mat". ArcFace tach bach tot hon o anh thieu sang/goc mat xau.
+# DOI MODEL PHAI DOI MODEL_VERSION: ho so cu khac version se khong tham gia so khop
+# (face_repository loc theo model_version) -> toan bo nhan vien phai dang ky lai.
+MODEL_VERSION = "arcface-retinaface-v1"
+MODEL_NAME = "ArcFace"
 DETECTOR = "retinaface"
 MIN_FACE_PX = 80
 MIN_CONFIDENCE = 0.90
@@ -90,7 +95,7 @@ def health():
 
 def _detect_and_embed(img, do_antispoof):
     """
-    Detect + align (RetinaFace) roi trich xuat embedding Facenet512.
+    Detect + align (RetinaFace) roi trich xuat embedding ArcFace (512 chieu).
     Tra ve tuple (result_dict, ok_bool):
       ok=True  -> result la {'embedding','facial_area','face_confidence','is_real','antispoof_score'}
       ok=False -> result la {'status':'rejected'|'error', 'reason'|'message', ...}
@@ -100,8 +105,8 @@ def _detect_and_embed(img, do_antispoof):
 
     # Dò mặt: YuNet TRUOC (nhanh ~20x tren CPU, du chinh xac cho anh da duoc
     # client cat san quanh mat), truot moi roi ve RetinaFace (chinh xac nhat,
-    # cham) roi opencv. Do chinh xac NHAN DANG khong doi: embedding van la
-    # Facenet512 + can chinh theo mat, nguong so khop o PHP giu nguyen.
+    # cham) roi opencv. Do chinh xac NHAN DANG khong doi: embedding la
+    # ArcFace + can chinh theo mat; nguong so khop dat o PHP (face_config.php).
     # PHAN BIET "khong thay mat" (ValueError cua enforce_detection) voi loi
     # cau hinh/moi truong (vd thieu torch cho anti-spoofing) - loi loai sau
     # KHONG duoc bao la no_face keo nguoi dung tuong anh xau.
